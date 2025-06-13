@@ -3,14 +3,35 @@
   import { onMount } from 'svelte';
 
   let user = null;
+  let profile = null;
   let newEmail = '';
   let newPassword = '';
   let message = '';
 
-  // Get logged-in user on mount
   onMount(async () => {
-    const { data } = await supabase.auth.getUser();
+    const { data, error } = await supabase.auth.getUser();
+
+    if (error) {
+      console.error('Failed to get user:', error.message);
+      return;
+    }
+
     user = data.user;
+
+    // Fetch profile from custom 'users' table
+    if (user) {
+      const { data: profileData, error: profileError } = await supabase
+        .from('users')
+        .select('displayname, provider')
+        .eq('uid', user.id)
+        .single();
+
+      if (profileError) {
+        console.warn('Profile not found:', profileError.message);
+      } else {
+        profile = profileData;
+      }
+    }
   });
 
   const signInWithGoogle = async () => {
@@ -22,25 +43,37 @@
 
   const updateEmail = async () => {
     const { error } = await supabase.auth.updateUser({ email: newEmail });
-    if (error) {
-      message = `❌ Email update failed: ${error.message}`;
-    } else {
-      message = '✅ Email update requested. Please confirm via email.';
-    }
+    message = error
+      ? `❌ Email update failed: ${error.message}`
+      : '✅ Email update requested. Please confirm via email.';
   };
 
   const updatePassword = async () => {
     const { error } = await supabase.auth.updateUser({ password: newPassword });
-    if (error) {
-      message = `❌ Password update failed: ${error.message}`;
-    } else {
-      message = '✅ Password updated successfully.';
-    }
+    message = error
+      ? `❌ Password update failed: ${error.message}`
+      : '✅ Password updated successfully.';
+  };
+
+  const logoutAndDelete = async () => {
+    const userId = user.id;
+
+    await supabase.auth.signOut();
+    user = null;
+
+    await fetch(`/api/delete-user?id=${userId}`, { method: 'DELETE' });
+
+    console.log('Logout done. Delete user in automation script.');
   };
 </script>
 
 {#if user}
   <p>Welcome, {user.email}!</p>
+
+  {#if profile}
+    <p>Name: {profile.displayname}</p>
+    <p>Provider: {profile.provider}</p>
+  {/if}
 
   <div class="mt-4">
     <label class="block">Update Email:</label>
@@ -53,6 +86,8 @@
     <input bind:value={newPassword} type="password" placeholder="New password" class="border p-2 rounded" />
     <button on:click={updatePassword} class="ml-2 p-2 bg-yellow-500 text-white rounded">Update Password</button>
   </div>
+
+  <button on:click={logoutAndDelete} class="mt-6 p-2 bg-red-600 text-white rounded">Logout and Delete</button>
 
   {#if message}
     <p class="mt-4 text-sm text-blue-600">{message}</p>
